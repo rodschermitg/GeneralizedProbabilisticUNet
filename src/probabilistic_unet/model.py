@@ -408,6 +408,7 @@ class Fcomb(nn.Module):
 
 
         self.last_layer = nn.Conv2d(self.num_filters[0], self.num_classes, kernel_size=1)
+        self.activation_layer = nn.LogSoftmax(dim=1)
 
         if initializers['w'] == 'orthogonal':
             self.layers.apply(init_weights_orthogonal_normal)
@@ -444,7 +445,10 @@ class Fcomb(nn.Module):
         #Concatenate the feature map (output of the UNet) and the sample taken from the latent space
         feature_map = torch.cat((feature_map, z), dim=self.channel_axis)
         output = self.layers(feature_map)
-        return self.last_layer(output)
+        output = self.last_layer(output)
+        output = self.activation_layer(output)
+
+        return output
 
 
 class glowDensity(nn.Module):
