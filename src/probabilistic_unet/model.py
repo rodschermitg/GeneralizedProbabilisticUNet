@@ -4,7 +4,7 @@ from .unet_blocks import *
 from .unet import Unet
 from .utils import init_weights,init_weights_orthogonal_normal, l2_regularisation
 import torch.nn.functional as F
-from torch.distributions import Normal, Independent, kl, LowRankMultivariateNormal, RelaxedOneHotCategorical, MultivariateNormal
+from torch.distributions import Normal, Independent, kl_divergence, LowRankMultivariateNormal, RelaxedOneHotCategorical, MultivariateNormal
 from .mog import MixtureOfGaussians
 from .nflib.flows import *
 from .flows import *
@@ -715,45 +715,45 @@ class ProbabilisticUnet(nn.Module):
                           norm=norm)
 
 
-    def forward(self, patch, segm, training=True):
-        """
-        Construct prior latent space for patch and run patch through UNet,
-        in case training is True also construct posterior latent space
-        """
-        if training:
-            if self.flow:
-                self.log_det_j, self.z0, self.z, self.posterior_latent_space = self.posterior.forward(patch, segm)
-            else:
-                _, self.posterior_latent_space = self.posterior.forward(patch,segm)
-                self.z = self.posterior_latent_space.rsample()
-                self.z0 = self.z.clone()
-        _, self.prior_latent_space = self.prior.forward(patch)
-        self.unet_features = self.unet.forward(patch)
+    # def forward(self, patch, segm, training=True):
+    #     """
+    #     Construct prior latent space for patch and run patch through UNet,
+    #     in case training is True also construct posterior latent space
+    #     """
+    #     if training:
+    #         if self.flow:
+    #             self.log_det_j, self.z0, self.z, self.posterior_latent_space = self.posterior.forward(patch, segm)
+    #         else:
+    #             _, self.posterior_latent_space = self.posterior.forward(patch,segm)
+    #             self.z = self.posterior_latent_space.rsample()
+    #             self.z0 = self.z.clone()
+    #     _, self.prior_latent_space = self.prior.forward(patch)
+    #     self.unet_features = self.unet.forward(patch)
 
-    def sample(self, testing=False):
-        """
-        Sample a segmentation by reconstructing from a prior sample
-        and combining this with UNet features
-        """
-        if testing == False:
-            z_prior = self.prior_latent_space.rsample()
-            self.z_prior_sample = z_prior
-        else:
-            #You can choose whether you mean a sample or the mean here. For the GED it is important to take a sample.
-            z_prior = self.prior_latent_space.sample()
-            self.z_prior_sample = z_prior
-        log_pz = self.prior_latent_space.log_prob(z_prior)
-        #log_qz = self.posterior_latent_space.log_prob(z_prior)
-        return self.fcomb.forward(self.unet_features,z_prior), log_pz
+    # def sample(self, testing=False):
+    #     """
+    #     Sample a segmentation by reconstructing from a prior sample
+    #     and combining this with UNet features
+    #     """
+    #     if testing == False:
+    #         z_prior = self.prior_latent_space.rsample()
+    #         self.z_prior_sample = z_prior
+    #     else:
+    #         #You can choose whether you mean a sample or the mean here. For the GED it is important to take a sample.
+    #         z_prior = self.prior_latent_space.sample()
+    #         self.z_prior_sample = z_prior
+    #     log_pz = self.prior_latent_space.log_prob(z_prior)
+    #     #log_qz = self.posterior_latent_space.log_prob(z_prior)
+    #     return self.fcomb.forward(self.unet_features,z_prior), log_pz
 
-    def get_latent_space_distribution(self, mode='prior'):
+    # def get_latent_space_distribution(self, mode='prior'):
 
-        if mode == 'prior':
-            return self.prior_latent_space
-        elif mode == 'posterior':
-            return self.posterior_latent_space
-        else:
-            raise ValueError('{} is an invalid mode'.format(mode))
+    #     if mode == 'prior':
+    #         return self.prior_latent_space
+    #     elif mode == 'posterior':
+    #         return self.posterior_latent_space
+    #     else:
+    #         raise ValueError('{} is an invalid mode'.format(mode))
 
 
     def reconstruct(self, use_posterior_mean=False, calculate_posterior=False, z_posterior=None):
@@ -769,37 +769,37 @@ class ProbabilisticUnet(nn.Module):
                 z_posterior = self.posterior_latent_space.rsample()
         return self.fcomb.forward(self.unet_features, z_posterior)
 
-    def kl_divergence(self, analytic=True, calculate_posterior=False, z_posterior=None, mc_samples=1):
-        """
-        Calculate the KL divergence between the posterior and prior KL(Q||P)
-        analytic: calculate KL analytically or via sampling from the posterior
-        calculate_posterior: if we use samapling to approximate KL we can sample here or supply a sample
-        """
-        if analytic is True and self.kl_nan is False:
-            #Neeed to add this to torch source code, see: https://github.com/pytorch/pytorch/issues/13545
-            kl_div = kl.kl_divergence(self.posterior_latent_space, self.prior_latent_space).sum()
-            if torch.isnan(torch.mean(kl_div)).item() is True or torch.isinf(torch.mean(kl_div)).item() is True: # Compute MC approx instead!
-                z_samples = self.posterior_latent_space.rsample(sample_shape=torch.Size([mc_samples]))
-                log_posterior_prob = self.posterior_latent_space.log_prob(z_samples)
-                log_prior_prob = self.prior_latent_space.log_prob(z_samples)
-                kl_div = torch.mean((log_posterior_prob-log_prior_prob), dim=0).sum()
-                # Set the flag
-                self.kl_nan = True
-        else:
-            if mc_samples == 1:
-                log_posterior_prob = self.posterior_latent_space.log_prob(self.z)
-                log_prior_prob = self.prior_latent_space.log_prob(self.z)
-                kl_div = (log_posterior_prob - log_prior_prob).sum()
-            else:
-                z_samples = self.posterior_latent_space.rsample(sample_shape=torch.Size([mc_samples]))
-                log_posterior_prob = self.posterior_latent_space.log_prob(z_samples)
-                log_prior_prob = self.prior_latent_space.log_prob(z_samples)
-                kl_div = torch.mean((log_posterior_prob-log_prior_prob), dim=0).sum()
+    # def kl_divergence(self, analytic=True, calculate_posterior=False, z_posterior=None, mc_samples=1):
+    #     """
+    #     Calculate the KL divergence between the posterior and prior KL(Q||P)
+    #     analytic: calculate KL analytically or via sampling from the posterior
+    #     calculate_posterior: if we use samapling to approximate KL we can sample here or supply a sample
+    #     """
+    #     if analytic is True and self.kl_nan is False:
+    #         #Neeed to add this to torch source code, see: https://github.com/pytorch/pytorch/issues/13545
+    #         kl_div = kl.kl_divergence(self.posterior_latent_space, self.prior_latent_space).sum()
+    #         if torch.isnan(torch.mean(kl_div)).item() is True or torch.isinf(torch.mean(kl_div)).item() is True: # Compute MC approx instead!
+    #             z_samples = self.posterior_latent_space.rsample(sample_shape=torch.Size([mc_samples]))
+    #             log_posterior_prob = self.posterior_latent_space.log_prob(z_samples)
+    #             log_prior_prob = self.prior_latent_space.log_prob(z_samples)
+    #             kl_div = torch.mean((log_posterior_prob-log_prior_prob), dim=0).sum()
+    #             # Set the flag
+    #             self.kl_nan = True
+    #     else:
+    #         if mc_samples == 1:
+    #             log_posterior_prob = self.posterior_latent_space.log_prob(self.z)
+    #             log_prior_prob = self.prior_latent_space.log_prob(self.z)
+    #             kl_div = (log_posterior_prob - log_prior_prob).sum()
+    #         else:
+    #             z_samples = self.posterior_latent_space.rsample(sample_shape=torch.Size([mc_samples]))
+    #             log_posterior_prob = self.posterior_latent_space.log_prob(z_samples)
+    #             log_prior_prob = self.prior_latent_space.log_prob(z_samples)
+    #             kl_div = torch.mean((log_posterior_prob-log_prior_prob), dim=0).sum()
 
-        if self.flow:
-            kl_div = kl_div - self.log_det_j.sum()
+    #     if self.flow:
+    #         kl_div = kl_div - self.log_det_j.sum()
 
-        return kl_div
+    #     return kl_div
 
     def compute_entropy(self, probs=None, reduction='sum'):
         """
@@ -855,85 +855,85 @@ class ProbabilisticUnet(nn.Module):
             -(self.reconstruction_loss + self.beta * self.kl - self.gamma*prior_entropy - self.gamma*posterior_entropy)/batch_size
 
 
-#    def forward(self, patch, segm, training=True, one_hot=True, mc_samples=1000):
-#        """
-#        Construct prior latent space for patch and run patch through UNet,
-#        in case training is True also construct posterior latent space
-#        """
-#        # Get the distribution(s)
-#        if training:
-#            self.posterior_latent_space = self.posterior.forward(patch, segm, one_hot=one_hot)
-#
-#        self.prior_latent_space = self.prior.forward(patch)
-#
-#        # Get the U-net features
-#        self.unet_features = self.unet.forward(patch,False)
-#
-#        if training:
-#            # Create a label prediction by merging the unet_features and a sample from the posterior
-#            reconstruction = self.sample(mode='posterior')
-#        else:
-#            # Create a label prediction by merging the unet_features and a sample from the posterior (at test-time)
-#            reconstruction = self.sample(mode='prior')
-#
-#        # Save the distribution so that we can use it to compute the KL-term in the ELBO
-#        if training:
-#            kld = self.compute_kl_divergence(posterior_dist=self.posterior_latent_space,
-#                                             prior_dist=self.prior_latent_space,
-#                                             mc_samples=mc_samples)
-#            kld = torch.mean(kld)
-#        else:
-#            kld = 0.0
-#
-#        return (reconstruction, kld)
-#
-#    # DEBUG function (Can be called only after a call to model.forward())
-#    def get_latent_space_distribution(self, mode='prior'):
-#        if mode == 'prior':
-#            return self.prior_latent_space
-#        elif mode == 'posterior':
-#            return self.posterior_latent_space
-#        else:
-#            raise RuntimeError('Invalid mode {}'.format(mode))
-#
-#
-#    @staticmethod
-#    def compute_kl_divergence(posterior_dist, prior_dist, mc_samples=100):
-#        """
-#        Calculate the KL divergence between the posterior and prior KL(Q||P)
-#        analytic: calculate KL analytically or via sampling from the posterior
-#        calculate_posterior: if we use samapling to approximate KL we can sample here or supply a sample
-#        """
-#
-#        try:
-#            #Neeed to add this to torch source code, see: https://github.com/pytorch/pytorch/issues/13545
-#            kl_div = kl.kl_divergence(posterior_dist,
-#                                      prior_dist)
-#
-#        except NotImplementedError:
-#            # If the analytic KL divergence does not exists, use MC-approximation
-#            # See: 'APPROXIMATING THE KULLBACK LEIBLER DIVERGENCE BETWEEN GAUSSIAN MIXTURE MODELS' by Hershey and Olsen (2007)
-#
-#            # MC-approximation
-#            posterior_samples = posterior_dist.rsample(sample_shape=torch.Size([mc_samples]))
-#            log_posterior_prob = posterior_dist.log_prob(posterior_samples)
-#            log_prior_prob = prior_dist.log_prob(posterior_samples)
-#            monte_carlo_terms = log_posterior_prob - log_prior_prob
-#            kl_div = torch.mean(monte_carlo_terms, dim=0)
-#
-#        return kl_div
-#
-#    # Sampling function that is used during training and testing
-#    # Uses the u_net features computed in the forward() call
-#    # Only the fcomb.forward() is run again
-#    def sample(self, mode='prior'):
-#        """
-#        Sample from the prior latent space. Used in inference!
-#
-#        """
-#        if mode == 'prior':
-#            z_sample = self.prior_latent_space.rsample()
-#        elif mode == 'posterior':
-#            z_sample = self.posterior_latent_space.rsample()
-#
-#        return self.fcomb.forward(self.unet_features, z_sample)
+    def forward(self, patch, segm, training=True, one_hot=True, mc_samples=1000):
+        """
+        Construct prior latent space for patch and run patch through UNet,
+        in case training is True also construct posterior latent space
+        """
+        # Get the distribution(s)
+        if training:
+            self.posterior_latent_space = self.posterior.forward(patch, segm, one_hot=one_hot)
+
+        self.prior_latent_space = self.prior.forward(patch)
+
+        # Get the U-net features
+        self.unet_features = self.unet.forward(patch,False)
+
+        if training:
+            # Create a label prediction by merging the unet_features and a sample from the posterior
+            reconstruction = self.sample(mode='posterior')
+        else:
+            # Create a label prediction by merging the unet_features and a sample from the posterior (at test-time)
+            reconstruction = self.sample(mode='prior')
+
+        # Save the distribution so that we can use it to compute the KL-term in the ELBO
+        if training:
+            kld = self.compute_kl_divergence(posterior_dist=self.posterior_latent_space,
+                                                prior_dist=self.prior_latent_space,
+                                                mc_samples=mc_samples)
+            kld = torch.mean(kld)
+        else:
+            kld = 0.0
+
+        return (reconstruction, kld)
+
+    # DEBUG function (Can be called only after a call to model.forward())
+    def get_latent_space_distribution(self, mode='prior'):
+        if mode == 'prior':
+            return self.prior_latent_space
+        elif mode == 'posterior':
+            return self.posterior_latent_space
+        else:
+            raise RuntimeError('Invalid mode {}'.format(mode))
+
+
+    @staticmethod
+    def compute_kl_divergence(posterior_dist, prior_dist, mc_samples=100):
+        """
+        Calculate the KL divergence between the posterior and prior KL(Q||P)
+        analytic: calculate KL analytically or via sampling from the posterior
+        calculate_posterior: if we use samapling to approximate KL we can sample here or supply a sample
+        """
+
+        try:
+            #Neeed to add this to torch source code, see: https://github.com/pytorch/pytorch/issues/13545
+            kl_div = kl.kl_divergence(posterior_dist,
+                                        prior_dist)
+
+        except NotImplementedError:
+            # If the analytic KL divergence does not exists, use MC-approximation
+            # See: 'APPROXIMATING THE KULLBACK LEIBLER DIVERGENCE BETWEEN GAUSSIAN MIXTURE MODELS' by Hershey and Olsen (2007)
+
+            # MC-approximation
+            posterior_samples = posterior_dist.rsample(sample_shape=torch.Size([mc_samples]))
+            log_posterior_prob = posterior_dist.log_prob(posterior_samples)
+            log_prior_prob = prior_dist.log_prob(posterior_samples)
+            monte_carlo_terms = log_posterior_prob - log_prior_prob
+            kl_div = torch.mean(monte_carlo_terms, dim=0)
+
+        return kl_div
+
+    # Sampling function that is used during training and testing
+    # Uses the u_net features computed in the forward() call
+    # Only the fcomb.forward() is run again
+    def sample(self, mode='prior'):
+        """
+        Sample from the prior latent space. Used in inference!
+
+        """
+        if mode == 'prior':
+            z_sample = self.prior_latent_space.rsample()
+        elif mode == 'posterior':
+            z_sample = self.posterior_latent_space.rsample()
+
+        return self.fcomb.forward(self.unet_features, z_sample)
