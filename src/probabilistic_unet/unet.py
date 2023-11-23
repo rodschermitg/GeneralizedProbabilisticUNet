@@ -63,7 +63,7 @@ class Unet(nn.Module):
                                                     dropout_rate=dropout_rate))
 
         if self.apply_last_layer:
-            self.last_layer = nn.Conv2d(output, num_classes, kernel_size=1)
+            self.last_layer = nn.Conv3d(output, num_classes, kernel_size=1)
 
 
     def forward(self, x):

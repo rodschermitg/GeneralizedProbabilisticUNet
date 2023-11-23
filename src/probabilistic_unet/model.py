@@ -36,16 +36,16 @@ class Encoder(nn.Module):
             output_dim = num_filters[i]
 
             if i != 0:
-                layers.append(nn.AvgPool2d(kernel_size=2, stride=2, padding=0, ceil_mode=True))
+                layers.append(nn.AvgPool3d(kernel_size=2, stride=2, padding=0, ceil_mode=True))
 
-            layers.append(nn.Conv2d(input_dim, output_dim, kernel_size=3, padding=int(padding)))
+            layers.append(nn.Conv3d(input_dim, output_dim, kernel_size=3, padding=int(padding)))
             layers.append(nn.ReLU(inplace=True))
 
             for _ in range(no_convs_per_block-1):
-                layers.append(nn.Conv2d(output_dim, output_dim, kernel_size=3, padding=int(padding)))
+                layers.append(nn.Conv3d(output_dim, output_dim, kernel_size=3, padding=int(padding)))
                 layers.append(nn.ReLU(inplace=True))
             if i < len(self.num_filters)-1 and norm == True:
-                layers.append(nn.BatchNorm2d(output_dim))
+                layers.append(nn.BatchNorm3d(output_dim))
 
         self.layers = nn.Sequential(*layers)
 
@@ -168,10 +168,10 @@ class FullCovConvGaussian(nn.Module):
 
 
         # Obtain the following from encoder output: mu, log(sigma), L'
-        self.mean_log_sigma_op = nn.Conv2d(num_filters[-1], self.n_components*2*self.latent_dim, (1, 1), stride=1)
+        self.mean_log_sigma_op = nn.Conv3d(num_filters[-1], self.n_components*2*self.latent_dim, (1, 1, 1), stride=1)
 
         # Lower triangular part of the covariance matrix
-        self.cov_tril_op = nn.Conv2d(num_filters[-1], self.n_components*self.latent_dim*self.latent_dim, (1, 1), stride=1)
+        self.cov_tril_op = nn.Conv3d(num_filters[-1], self.n_components*self.latent_dim*self.latent_dim, (1, 1, 1), stride=1)
 
         nn.init.kaiming_normal_(self.mean_log_sigma_op.weight, mode='fan_in', nonlinearity='relu')
         nn.init.normal_(self.mean_log_sigma_op.bias)
@@ -180,7 +180,7 @@ class FullCovConvGaussian(nn.Module):
         nn.init.normal_(self.cov_tril_op.bias)
 
         if self.n_components > 1:
-            self.mixture_weights_conv = nn.Conv2d(num_filters[-1], self.n_components, (1, 1), stride=1)
+            self.mixture_weights_conv = nn.Conv3d(num_filters[-1], self.n_components, (1, 1, 1), stride=1)
 
         self.show_img = 0
         self.show_seg = 0
@@ -205,15 +205,15 @@ class FullCovConvGaussian(nn.Module):
 
         # Mean over spatial dims
         encoding = torch.mean(encoding,
-                              dim=(2, 3),
+                              dim=(2, 3, 4),
                               keepdim=True)
 
         mu_log_sigma = self.mean_log_sigma_op(encoding)
-        mu_log_sigma = mu_log_sigma.squeeze(dim=-1).squeeze(dim=-1)
+        mu_log_sigma = mu_log_sigma.squeeze(dim=-1).squeeze(dim=-1).squeeze(dim=-1)
         mu_log_sigma = mu_log_sigma.view(mu_log_sigma.shape[0], self.n_components, 2*self.latent_dim)
 
         cov_tril = self.cov_tril_op(encoding)
-        cov_tril = cov_tril.squeeze(dim=-1).squeeze(dim=-1)
+        cov_tril = cov_tril.squeeze(dim=-1).squeeze(dim=-1).squeeze(dim=-1)
 
         # Shape: [B*n_components x latent_dim x latent_dim]
         cov_tril = cov_tril.view(cov_tril.shape[0]*self.n_components, self.latent_dim, self.latent_dim)
@@ -244,10 +244,10 @@ class FullCovConvGaussian(nn.Module):
                                       scale_tril=L)
 
         else:
-            logits = self.mixture_weights_conv(encoding) # Shape : [batch_size, n_components, 1, 1]
+            logits = self.mixture_weights_conv(encoding) # Shape : [batch_size, n_components, 1, 1, 1]
             logits = torch.squeeze(logits, dim=-1)
             logits = torch.squeeze(logits, dim=-1)
-
+            logits = torch.squeeze(logits, dim=-1)
             cat_distribution = RelaxedOneHotCategorical(logits=logits,
                                                         temperature=torch.Tensor([self.temperature]).to(logits.device))
 
@@ -260,7 +260,7 @@ class FullCovConvGaussian(nn.Module):
 
         assert(dist.batch_shape[0] == input.shape[0])
 
-        return encoding.squeeze(-1).squeeze(-1), dist
+        return encoding.squeeze(-1).squeeze(-1).squeeze(-1), dist
 
 
 class LowRankCovConvGaussian(nn.Module):
@@ -376,7 +376,7 @@ class Fcomb(nn.Module):
         self.num_channels = num_output_channels #output channels
         self.num_classes = num_classes
         self.channel_axis = 1
-        self.spatial_axes = [2,3]
+        self.spatial_axes = [2, 3, 4]
         self.num_filters = num_filters
         self.latent_dim = latent_dim
         self.use_tile = use_tile
@@ -395,19 +395,19 @@ class Fcomb(nn.Module):
         layers = []
 
         #Decoder of N x a 1x1 convolution followed by a ReLU activation function except for the last layer
-        layers.append(nn.Conv2d(self.num_filters[0]+self.latent_dim, self.num_filters[0], kernel_size=1))
+        layers.append(nn.Conv3d(self.num_filters[0]+self.latent_dim, self.num_filters[0], kernel_size=1))
         layers.append(nn.ReLU(inplace=True))
 
         for _ in range(no_convs_fcomb-2):
             if norm:
-                layers.append(nn.BatchNorm2d(self.num_filters[0]))
-            layers.append(nn.Conv2d(self.num_filters[0], self.num_filters[0], kernel_size=1))
+                layers.append(nn.BatchNorm3d(self.num_filters[0]))
+            layers.append(nn.Conv3d(self.num_filters[0], self.num_filters[0], kernel_size=1))
             layers.append(nn.ReLU(inplace=True))
 
         self.layers = nn.Sequential(*layers)
 
 
-        self.last_layer = nn.Conv2d(self.num_filters[0], self.num_classes, kernel_size=1)
+        self.last_layer = nn.Conv3d(self.num_filters[0], self.num_classes, kernel_size=1)
         self.activation_layer = nn.LogSoftmax(dim=1)
 
         if initializers['w'] == 'orthogonal':
@@ -439,6 +439,8 @@ class Fcomb(nn.Module):
             z = self.tile(z, 2, feature_map.shape[self.spatial_axes[0]])
             z = torch.unsqueeze(z,3)
             z = self.tile(z, 3, feature_map.shape[self.spatial_axes[1]])
+            z = torch.unsqueeze(z,4)
+            z = self.tile(z, 4, feature_map.shape[self.spatial_axes[2]])
         else:
             z = z.unsqueeze(2).unsqueeze(2)
             z = self.latent_broadcast(z)
@@ -855,37 +857,38 @@ class ProbabilisticUnet(nn.Module):
             -(self.reconstruction_loss + self.beta * self.kl - self.gamma*prior_entropy - self.gamma*posterior_entropy)/batch_size
 
 
-    def forward(self, patch, segm, training=True, one_hot=True, mc_samples=1000):
+    def forward(self, patch, segm=None, one_hot=True, mc_samples=1000):
         """
         Construct prior latent space for patch and run patch through UNet,
         in case training is True also construct posterior latent space
         """
         # Get the distribution(s)
-        if training:
-            self.posterior_latent_space = self.posterior.forward(patch, segm, one_hot=one_hot)
+        if self.training:
+            _, self.posterior_latent_space = self.posterior.forward(patch, segm, one_hot=one_hot)
 
-        self.prior_latent_space = self.prior.forward(patch)
+        _, self.prior_latent_space = self.prior.forward(patch)
 
         # Get the U-net features
-        self.unet_features = self.unet.forward(patch,False)
+        self.unet_features = self.unet.forward(patch)
 
-        if training:
+        if self.training:
             # Create a label prediction by merging the unet_features and a sample from the posterior
             reconstruction = self.sample(mode='posterior')
         else:
-            # Create a label prediction by merging the unet_features and a sample from the posterior (at test-time)
+            # Create a label prediction by merging the unet_features and a sample from the prior (at test-time)
             reconstruction = self.sample(mode='prior')
 
         # Save the distribution so that we can use it to compute the KL-term in the ELBO
-        if training:
+        if self.training:
             kld = self.compute_kl_divergence(posterior_dist=self.posterior_latent_space,
-                                                prior_dist=self.prior_latent_space,
-                                                mc_samples=mc_samples)
+                                             prior_dist=self.prior_latent_space,
+                                             mc_samples=mc_samples)
             kld = torch.mean(kld)
-        else:
-            kld = 0.0
 
-        return (reconstruction, kld)
+            return (reconstruction, kld)
+        else:
+            return reconstruction
+
 
     # DEBUG function (Can be called only after a call to model.forward())
     def get_latent_space_distribution(self, mode='prior'):
@@ -907,8 +910,8 @@ class ProbabilisticUnet(nn.Module):
 
         try:
             #Neeed to add this to torch source code, see: https://github.com/pytorch/pytorch/issues/13545
-            kl_div = kl.kl_divergence(posterior_dist,
-                                        prior_dist)
+            kl_div = kl_divergence(posterior_dist,
+                                   prior_dist)
 
         except NotImplementedError:
             # If the analytic KL divergence does not exists, use MC-approximation
@@ -928,7 +931,7 @@ class ProbabilisticUnet(nn.Module):
     # Only the fcomb.forward() is run again
     def sample(self, mode='prior'):
         """
-        Sample from the prior latent space. Used in inference!
+        Sample from the prior/posterior latent space. Used in inference!
 
         """
         if mode == 'prior':

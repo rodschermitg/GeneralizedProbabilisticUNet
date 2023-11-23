@@ -17,17 +17,17 @@ class DownConvBlock(nn.Module):
         self.mc_dropout = mc_dropout
 
         if pool:
-            layers.append(nn.AvgPool2d(kernel_size=2, stride=2, padding=0, ceil_mode=True))
+            layers.append(nn.AvgPool3d(kernel_size=2, stride=2, padding=0, ceil_mode=True))
 
-        layers.append(nn.Conv2d(input_dim, output_dim, kernel_size=3, stride=1, padding=int(padding)))
+        layers.append(nn.Conv3d(input_dim, output_dim, kernel_size=3, stride=1, padding=int(padding)))
         layers.append(nn.ReLU(inplace=True))
-        layers.append(nn.Conv2d(output_dim, output_dim, kernel_size=3, stride=1, padding=int(padding)))
+        layers.append(nn.Conv3d(output_dim, output_dim, kernel_size=3, stride=1, padding=int(padding)))
         layers.append(nn.ReLU(inplace=True))
-        layers.append(nn.Conv2d(output_dim, output_dim, kernel_size=3, stride=1, padding=int(padding)))
+        layers.append(nn.Conv3d(output_dim, output_dim, kernel_size=3, stride=1, padding=int(padding)))
         layers.append(nn.ReLU(inplace=True))
 
         if norm:
-            layers.append(nn.BatchNorm2d(output_dim))
+            layers.append(nn.BatchNorm3d(output_dim))
 
         if self.mc_dropout is True:
             self.dropout_op = nn.Dropout(p=dropout_rate)
@@ -47,20 +47,20 @@ class DownConvBlock(nn.Module):
 class UpConvBlock(nn.Module):
     """
     A block consists of an upsampling layer followed by a convolutional layer to reduce the amount of channels and then a DownConvBlock
-    If bilinear is set to false, we do a transposed convolution instead of upsampling
+    If trilinear is set to false, we do a transposed convolution instead of upsampling
     """
-    def __init__(self, input_dim, output_dim, initializers, padding, bilinear=True,norm=False, mc_dropout=False, dropout_rate=0.0):
+    def __init__(self, input_dim, output_dim, initializers, padding, trilinear=True,norm=False, mc_dropout=False, dropout_rate=0.0):
         super(UpConvBlock, self).__init__()
-        self.bilinear = bilinear
-        if not self.bilinear:
-            self.upconv_layer = nn.ConvTranspose2d(input_dim, output_dim, kernel_size=2, stride=2)
+        self.trilinear = trilinear
+        if not self.trilinear:
+            self.upconv_layer = nn.ConvTranspose3d(input_dim, output_dim, kernel_size=2, stride=2)
             self.upconv_layer.apply(init_weights)
 #        pdb.set_trace()
         self.conv_block = DownConvBlock(input_dim, output_dim, initializers, padding, pool=False,norm=norm, mc_dropout=mc_dropout, dropout_rate=dropout_rate)
 
     def forward(self, x, bridge):
-        if self.bilinear:
-            up = nn.functional.interpolate(x, mode='bilinear', scale_factor=2, align_corners=True)
+        if self.trilinear:
+            up = nn.functional.interpolate(x, mode='trilinear', scale_factor=2, align_corners=True)
         else:
             up = self.upconv_layer(x)
 
