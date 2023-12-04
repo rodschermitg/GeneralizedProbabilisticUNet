@@ -371,7 +371,7 @@ class Fcomb(nn.Module):
     and output of the UNet (the feature map) by concatenating them along their channel axis.
     """
     def __init__(self, num_filters, latent_dim, num_output_channels, num_classes,
-            no_convs_fcomb, initializers, use_tile=True,norm=False):
+            no_convs_fcomb, activation_layer, initializers, use_tile=True,norm=False):
         super(Fcomb, self).__init__()
         self.num_channels = num_output_channels #output channels
         self.num_classes = num_classes
@@ -408,7 +408,7 @@ class Fcomb(nn.Module):
 
 
         self.last_layer = nn.Conv3d(self.num_filters[0], self.num_classes, kernel_size=1)
-        self.activation_layer = nn.LogSoftmax(dim=1)
+        self.activation_layer = activation_layer
 
         if initializers['w'] == 'orthogonal':
             self.layers.apply(init_weights_orthogonal_normal)
@@ -581,7 +581,7 @@ class ProbabilisticUnet(nn.Module):
     no_cons_per_block: no convs per block in the (convolutional) encoder of prior and posterior
     """
 
-    def __init__(self, input_channels=1, label_channels=1, num_classes=1, num_filters=[32,64,128,192], latent_dim=6, no_convs_fcomb=4, beta=1.0, gamma=1.0, mc_dropout=False, dropout_rate=0.0, low_rank=False, full_cov=False, rank=-1, n_components=1, temperature=0.1, norm=True, flow=False, glow=False, num_flows=4):
+    def __init__(self, input_channels=1, label_channels=1, num_classes=1, num_filters=[32,64,128,192], latent_dim=6, no_convs_fcomb=4, activation_layer=nn.LogSoftmax(dim=1), beta=1.0, gamma=1.0, mc_dropout=False, dropout_rate=0.0, low_rank=False, full_cov=False, rank=-1, n_components=1, temperature=0.1, norm=True, flow=False, glow=False, num_flows=4):
         super(ProbabilisticUnet, self).__init__()
         self.input_channels = input_channels
         self.num_classes = num_classes
@@ -589,6 +589,7 @@ class ProbabilisticUnet(nn.Module):
         self.latent_dim = latent_dim
         self.no_convs_per_block = 3
         self.no_convs_fcomb = no_convs_fcomb
+        self.activation_layer = activation_layer
         self.initializers = {'w':'he_normal', 'b':'normal'}
         self.beta = beta
         self.z_prior_sample = 0
@@ -712,7 +713,9 @@ class ProbabilisticUnet(nn.Module):
                           self.latent_dim,
                           self.input_channels,
                           self.num_classes,
-                          self.no_convs_fcomb, {'w':'orthogonal', 'b':'normal'},
+                          self.no_convs_fcomb,
+                          self.activation_layer,
+                          {'w':'orthogonal', 'b':'normal'},
                           use_tile=True,
                           norm=norm)
 
