@@ -581,7 +581,7 @@ class ProbabilisticUnet(nn.Module):
     no_cons_per_block: no convs per block in the (convolutional) encoder of prior and posterior
     """
 
-    def __init__(self, input_channels=1, label_channels=1, num_classes=1, num_filters=[32,64,128,192], latent_dim=6, no_convs_fcomb=4, activation_layer=nn.LogSoftmax(dim=1), beta=1.0, gamma=1.0, mc_dropout=False, dropout_rate=0.0, low_rank=False, full_cov=False, rank=-1, n_components=1, temperature=0.1, norm=True, flow=False, glow=False, num_flows=4):
+    def __init__(self, input_channels=1, label_channels=1, num_classes=1, num_filters=[32, 64, 128, 192], latent_dim=6, no_convs_fcomb=4, activation_layer=nn.LogSoftmax(dim=1), save_decoder_features=False, beta=1.0, gamma=1.0, mc_dropout=False, dropout_rate=0.0, low_rank=False, full_cov=False, rank=-1, n_components=1, temperature=0.1, norm=True, flow=False, glow=False, num_flows=4):
         super(ProbabilisticUnet, self).__init__()
         self.input_channels = input_channels
         self.num_classes = num_classes
@@ -590,6 +590,7 @@ class ProbabilisticUnet(nn.Module):
         self.no_convs_per_block = 3
         self.no_convs_fcomb = no_convs_fcomb
         self.activation_layer = activation_layer
+        self.save_decoder_features = save_decoder_features
         self.initializers = {'w':'he_normal', 'b':'normal'}
         self.beta = beta
         self.z_prior_sample = 0
@@ -623,7 +624,8 @@ class ProbabilisticUnet(nn.Module):
                          self.initializers,
                          apply_last_layer=False,
                          padding=True,
-                         norm=norm)
+                         norm=norm,
+                         save_decoder_features=self.save_decoder_features)
 
         # Prior Net
         if self.low_rank is True:
@@ -943,3 +945,7 @@ class ProbabilisticUnet(nn.Module):
             z_sample = self.posterior_latent_space.rsample()
 
         return self.fcomb.forward(self.unet_features, z_sample)
+
+    def get_processed_decoder_features(self, patch_size):
+        self.unet.process_decoder_features(patch_size)
+        return self.unet.decoder_features

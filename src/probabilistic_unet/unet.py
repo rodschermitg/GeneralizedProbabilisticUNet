@@ -1,6 +1,5 @@
 from .unet_blocks import *
-import torch.nn.functional as F
-import pdb
+
 
 class Unet(nn.Module):
     """
@@ -12,7 +11,7 @@ class Unet(nn.Module):
     padidng: Boolean, if true we pad the images with 1 so that we keep the same dimensions
     """
 
-    def __init__(self, input_channels, num_classes, num_filters, initializers, apply_last_layer=True, padding=True,norm=False, mc_dropout=False, dropout_rate=0.0):
+    def __init__(self, input_channels, num_classes, num_filters, initializers, apply_last_layer=True, padding=True, norm=False, mc_dropout=False, dropout_rate=0.0, save_decoder_features=False):
         super(Unet, self).__init__()
         self.input_channels = input_channels
         self.num_classes = num_classes
@@ -21,6 +20,7 @@ class Unet(nn.Module):
         self.activation_maps = []
         self.apply_last_layer = apply_last_layer
         self.contracting_path = nn.ModuleList()
+        self.save_decoder_features = save_decoder_features
 
         for i in range(len(self.num_filters)):
             input = self.input_channels if i == 0 else output
@@ -65,20 +65,43 @@ class Unet(nn.Module):
         if self.apply_last_layer:
             self.last_layer = nn.Conv3d(output, num_classes, kernel_size=1)
 
+        if self.save_decoder_features:
+            self.decoder_heads = nn.ModuleList([
+                nn.Conv3d(num_filters, self.num_classes, kernel_size=1)
+                for num_filters in self.num_filters[::-1]
+            ])
 
     def forward(self, x):
-        blocks = []
+        encoder_features = []
+        decoder_features = []
+
         for i, down in enumerate(self.contracting_path):
             x = down(x)
             if i != len(self.contracting_path)-1:
-                blocks.append(x)
+                encoder_features.append(x)
 
+        decoder_features.append(x)
         for i, up in enumerate(self.upsampling_path):
-            x = up(x, blocks[-i-1])
+            x = up(x, encoder_features[-i-1])
+            decoder_features.append(x)
 
-        del blocks
+        if self.training and self.save_decoder_features:
+            self.decoder_features = decoder_features
+        elif hasattr(self, "decoder_features"):
+            del self.decoder_features
+
+        del encoder_features
 
         if self.apply_last_layer:
-            x =  self.last_layer(x)
+            x = self.last_layer(x)
 
         return x
+
+    def process_decoder_features(self, patch_size):
+        upsample = torch.nn.Upsample(patch_size)
+        logsoftmax = torch.nn.LogSoftmax(dim=1)
+        self.decoder_features = [
+            upsample(logsoftmax(head(feat)))
+            for feat, head in zip(self.decoder_features, self.decoder_heads)
+        ]
+        self.decoder_features = self.decoder_features[::-1]
