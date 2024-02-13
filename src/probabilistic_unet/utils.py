@@ -13,14 +13,14 @@ def truncated_normal_(tensor, mean=0, std=1):
     tensor.data.mul_(std).add_(mean)
 
 def init_weights(m):
-    if type(m) == nn.Conv2d or type(m) == nn.ConvTranspose2d:
+    if type(m) is nn.Conv3d or type(m) is nn.ConvTranspose3d:
         nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
         #nn.init.normal_(m.weight, std=0.001)
         #nn.init.normal_(m.bias, std=0.001)
         truncated_normal_(m.bias, mean=0, std=0.001)
 
 def init_weights_orthogonal_normal(m):
-    if type(m) == nn.Conv2d or type(m) == nn.ConvTranspose2d:
+    if type(m) is nn.Conv3d or type(m) is nn.ConvTranspose3d:
         nn.init.orthogonal_(m.weight)
         truncated_normal_(m.bias, mean=0, std=0.001)
         #nn.init.normal_(m.bias, std=0.001)
